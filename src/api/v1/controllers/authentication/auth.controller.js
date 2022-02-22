@@ -56,12 +56,11 @@ exports.loginUser = (req, res, next) => {
       if (doc) {
         accessToken = await signAccessToken(doc.id);
         refreshToken = await signRefreshToken(doc.id);
-        generateRefreshToken(doc.id, refreshToken);
         const isMatch = await bcrypt.compare(req.body.password, doc.password);
         if (!isMatch) {
           res.status(400).json({ errors: [{ msg: "Invalid Credentials" }] });
         }
-        console.log(refreshTokens);
+        console.log("almost done");
         res.status(200).json({
           statusCode: 200,
           message: "Login Successfull",

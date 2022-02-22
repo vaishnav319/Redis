@@ -6,11 +6,16 @@ const {
   JWT_REFRESH_KEY,
   JWT_REFRESH_TIME,
 } = require("../core/config");
+const client = require("../core/cache/init_redis");
 const res = require("express/lib/response");
 let refreshTokens = [];
 module.exports = {
   refreshTokens,
-  removeRefreshToken: (userId) => {
+  removeRefreshToken: async (userId) => {
+    client.del(userId.toSring());
+
+    //blacklist current access token
+    await client.set("BL_" + userId.toSring(), token);
     refreshTokens = refreshTokens.filter((user) => user.userId !== userId);
     console.log(refreshTokens);
   },
@@ -61,31 +66,54 @@ module.exports = {
         issuer: "Vaishnav",
       };
       JWT.sign(payload, secret, options, (err, token) => {
+        console.log("refresh token:", token);
+        console.log(userId);
         if (err) {
           console.log(err.message);
           reject(createError.InternalServerError());
           return;
         }
-        resolve(token);
+        // client.get("2", async (err, data) => {
+        //   if (data) {
+        //     return res.status(200).send({
+        //       error: false,
+        //       message: `Data for 2 from the cache`,
+        //       data: JSON.parse(data),
+        //     });
+        //   }
+        // });
+
+        client.GET(userId, (err, result) => {
+          if (err) {
+            console.log(err.message);
+            reject(createError.InternalServerError());
+            return;
+          }
+          console.log("in client sugn refresh");
+          if (result) {
+            resolve(result);
+          } else {
+            client.SET(
+              userId,
+              token,
+              "EX",
+              365 * 24 * 60 * 60,
+              (err, reply) => {
+                if (err) {
+                  console.log(err.message);
+                  reject(createError.InternalServerError());
+                  return;
+                }
+                resolve(token);
+                return;
+              }
+            );
+          }
+        });
       });
     });
   },
-  generateRefreshToken: (userId, refreshToken) => {
-    let storedRefreshToken = refreshTokens.find((x) => x.userId === userId);
-    console.log("in generate refresh token");
-    if (storedRefreshToken === undefined) {
-      //add it
-      refreshTokens.push({
-        userId: userId,
-        token: refreshToken,
-      });
-    } else {
-      //update it
-      refreshTokens[refreshTokens.findIndex((x) => x.userId === userId)].token =
-        refreshToken;
-    }
-    return refreshToken;
-  },
+
   verifyRefreshToken: (req, res, next) => {
     if (!req.headers["authorization"]) return next(createError.Unauthorized());
     const authHeader = req.headers["authorization"];
@@ -97,55 +125,29 @@ module.exports = {
           err.name === "JsonWebTokenError" ? "Unauthorized" : err.message;
         return next(createError.Unauthorized(message));
       }
-      let storedRefreshToken = refreshTokens.find(
-        (x) => x.userId === payload.userId
-      );
-      if (storedRefreshToken === undefined) {
-        return res.status(401).json({
-          status: false,
-          message: "Your session is invalid",
-          data: "error",
-        });
-      }
-      if (storedRefreshToken.token != refreshToken) {
-        return res.status(401).json({
-          status: false,
-          message: "Your token is not same in store",
-          data: "error",
-        });
-      }
       req.payload = payload;
-      console.log("print payload");
+      const userId = payload.userId;
       console.log(req.payload);
+      client.GET(userId, (err, result) => {
+        if (err) {
+          console.log(err.message);
+          reject(createError.InternalServerError());
+          return;
+        }
+        if (result === null)
+          return res
+            .staus(401)
+            .json({ status: false, message: "Invalid Request" });
+        if (refreshToken !== JSON.parse(result).token)
+          return res
+            .staus(401)
+            .json({ status: false, message: "Token is not same as in store" });
+
+        if (refreshToken === JSON.parse(result).token) return resolve(userId);
+        console.log("not matched");
+      });
+
       next();
     });
   },
 };
-
-// verifyRefreshToken: (req, res, next) => {
-//   if (!req.headers["authorization"]) return next(createError.Unauthorized());
-//   const authHeader = req.headers["authorization"];
-//   const bearerToken = authHeader.split(" ");
-//   const refreshToken = bearerToken[1];
-//   JWT.verify(refreshToken, process.env.JWT_ACCESS_KEY, (err, payload) => {
-//     if (err) {
-//       const message =
-//         err.name === "JsonWebTokenError" ? "Unauthorized" : err.message;
-//       return next(createError.Unauthorized(message));
-//     }
-//     let storedRefreshToken = refreshTokens.find(
-//       (x) => x.userId === payload.userId
-//     );
-//     if (storedRefreshToken === undefined) {
-//       return res.status(401).json({
-//         status: false,
-//         message: "Your session is invalid",
-//         data: "error",
-//       });
-//     }
-//     req.payload = payload;
-//     console.log("print payload");
-//     console.log(req.payload);
-//     next();
-//   });
-// },

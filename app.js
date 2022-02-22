@@ -8,6 +8,10 @@ app.use(express.json());
 app.use(morgan("dev"));
 app.use(express.urlencoded({ extended: false, limit: "100mb" }));
 app.use(express.json({ limit: "50mb" }));
+
+//Redis
+require("./src/core/cache/init_redis");
+
 //DB
 const connectDB = require("./src/database/index");
 connectDB();
